@@ -1,6 +1,6 @@
 {
   "name": "claude-statusline",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Claude Code status line with a turn timer, Haiku task labels and the session-scope mod",
   "private": true,
   "type": "module",

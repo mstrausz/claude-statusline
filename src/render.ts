@@ -1,63 +1,34 @@
-// The status line itself: two lines from the JSON Claude Code passes on stdin, the cached
-// usage sources and the turn state the hooks write. It runs every second, so it reads
-// small files only; the slow sources refresh in detached jobs (refresh.ts).
+// The status line: two lines from the JSON Claude Code passes on stdin, the cached usage
+// sources, the turn state the hooks write, and the skill file the mod writes. It runs every
+// second, so it reads small files only; the slow sources refresh in detached jobs.
+//
+// It also writes <sid>.view.json, the data of the mod's detail pane, when that changes.
 
 import { mkdirSync, statSync, writeFileSync } from 'node:fs'
-import { homedir, hostname, userInfo } from 'node:os'
+import { homedir, hostname } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import {
   IS_WINDOWS, nowSeconds, paths, readIfExists, readJsonIfExists, spawnSelfDetached, writeAtomic,
 } from './env.ts'
+import { loadSettings, type Settings } from './settings.ts'
+import { LIMIT_CRIT, LIMIT_WARN, sevOf, USAGE_URL, type Limit, type View } from './style/common.ts'
+import { detectTier, hud } from './style/hud.ts'
+import { quiet } from './style/quiet.ts'
 
 export const USAGE_TTL = 30 // seconds between OAuth usage endpoint fetches
 export const CCUSAGE_TTL = 600 // seconds between ccusage runs (slow; month totals move slowly)
 export const SESSION_ID = /^[A-Za-z0-9_-]+$/
 
-const c = {
-  reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m', italic: '\x1b[3m',
-  green: '\x1b[0;32m', yellow: '\x1b[0;33m', red: '\x1b[0;31m', magenta: '\x1b[0;35m',
-  cyan: '\x1b[1;36m', blue: '\x1b[1;34m', bgreen: '\x1b[1;32m', byellow: '\x1b[1;33m',
-}
-const sep = ` ${c.dim}│${c.reset} `
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/** Everything one render shows, gathered from stdin, caches and turn files. */
-export type View = {
-  now: number // epoch seconds
-  date: Date
-  model?: string
-  ctxPct?: number
-  ctxCur?: number
-  ctxSize?: number
-  week?: Limit
-  fable?: Limit
-  month?: { cost: number; tokens: number }
-  turn?: { seconds: number; label?: string }
-  user: string
-  host: string
-  cwd: string // as shown, with the home folder as ~
-  branch?: string
-}
-export type Limit = { used?: number; resetsAt?: number }
-
-/** Severity color of a used percentage: more used is worse. */
-export const sev = (pct: number) => (pct < 50 ? c.green : pct < 80 ? c.yellow : c.red)
-
-/** "4d19h" / "2h05m" / "3m07s" / "42s" */
-export function dur(s: number): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  if (s >= 86400) return `${Math.floor(s / 86400)}d${Math.floor((s % 86400) / 3600)}h`
-  if (s >= 3600) return `${Math.floor(s / 3600)}h${pad(Math.floor((s % 3600) / 60))}m`
-  if (s >= 60) return `${Math.floor(s / 60)}m${pad(s % 60)}s`
-  return `${s}s`
-}
-
-/** 69120000 -> "69.1M", the way the month segment shows token counts. */
-export function human(n: number): string {
-  if (n >= 1e9) return `${Math.floor(n / 1e8) / 10}B`
-  if (n >= 1e6) return `${Math.floor(n / 1e5) / 10}M`
-  if (n >= 1e3) return `${Math.floor(n / 1e3)}K`
-  return String(n)
+/** What the pane shows beyond the status line (the mod's types/view.d.ts has the file shape). */
+export type Extra = {
+  ctxInput?: number
+  ctxCacheRead?: number
+  ctxCacheCreation?: number
+  monthKey: string
+  previous?: { key: string; cost: number; tokens: number }
+  sessionCost?: number
+  turnStart?: number
 }
 
 /** A reset time as epoch seconds, from epoch seconds, epoch milliseconds or an ISO date. */
@@ -72,47 +43,14 @@ export function epoch(v: unknown): number | undefined {
 
 const round = (v: unknown) => (typeof v === 'number' ? Math.floor(v + 0.5) : undefined)
 const num = (v: unknown) => (typeof v === 'number' ? v : undefined)
+const monthKeyOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 
-/** "label NN% left ⟳countdown", or "label …" before the source has data. */
-function limitSegment(label: string, l: Limit | undefined, now: number): string {
-  if (l?.used === undefined) return `${c.dim}${label} …${c.reset}`
-  const left = Math.max(0, 100 - l.used)
-  // A reset in the past means the data predates the reset: say so, not "0m".
-  const countdown = l.resetsAt === undefined ? '--' : l.resetsAt < now ? 'stale' : dur(l.resetsAt - now)
-  return `${c.dim}${label}${c.reset} ${sev(l.used)}${left}% left${c.reset} ${c.dim}⟳${countdown}${c.reset}`
-}
-
-/** The two lines, ready to print. The second ends with "$ " and no newline. */
-export function format(v: View): string {
-  let line1 = `${c.cyan}${v.model ?? '?'}${c.reset}${sep}`
-  if (v.ctxPct !== undefined) {
-    line1 += `${c.dim}ctx${c.reset} ${sev(v.ctxPct)}${v.ctxPct}%${c.reset}`
-    if (v.ctxCur !== undefined && v.ctxSize !== undefined)
-      line1 += ` ${c.dim}${Math.floor(v.ctxCur / 1000)}k/${Math.floor(v.ctxSize / 1000)}k${c.reset}`
-  } else {
-    line1 += `${c.dim}ctx …${c.reset}`
-  }
-  line1 += sep + limitSegment('7d', v.week, v.now)
-  line1 += '  ' + limitSegment('Fable', v.fable, v.now)
-  line1 += v.month
-    ? `${sep}${c.bold}${c.bgreen}$${v.month.cost.toFixed(2)}${c.reset} ${c.dim}·${c.reset} ` +
-      `${human(v.month.tokens)} tok ${c.dim}(${MONTHS[v.date.getMonth()]})${c.reset}`
-    : `${sep}${c.dim}$… mo${c.reset}`
-
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const d = v.date
-  const clock = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  let turn = ''
-  if (v.turn) {
-    turn = ` ${c.byellow}⏱ ${dur(v.turn.seconds)}${c.reset}`
-    if (v.turn.label) turn += ` ${c.italic}${v.turn.label}${c.reset}`
-    turn += ` ${c.dim}│${c.reset}`
-  }
-  const git = v.branch ? ` ${c.magenta}(${v.branch})${c.reset}` : ''
-  return (
-    `${line1}\n${c.dim}${clock}${c.reset}${turn} ` +
-    `${c.bgreen}${v.user}@${v.host}${c.reset}:${c.blue}${v.cwd}${c.reset}${git}$ `
-  )
+/** The folder with the home folder shown as ~ (case-blind on Windows, as its paths are). */
+export function tildify(dir: string, home: string, windows = IS_WINDOWS): string {
+  const key = (s: string) => (windows ? s.toLowerCase() : s)
+  if (key(dir) === key(home)) return '~'
+  const seps = windows ? ['\\', '/'] : ['/']
+  return seps.some(s => key(dir).startsWith(key(home) + s)) ? '~' + dir.slice(home.length) : dir
 }
 
 /** The branch checked out at dir or above: its name, a short SHA when detached, else undefined. */
@@ -121,7 +59,7 @@ export function gitBranch(dir: string): string | undefined {
   let git: string | undefined
   for (;;) {
     const candidate = join(d, '.git')
-    if (exists(candidate)) {
+    if (statSync(candidate, { throwIfNoEntry: false })) {
       git = candidate
       break
     }
@@ -140,12 +78,16 @@ export function gitBranch(dir: string): string | undefined {
   return head.substring(0, 7)
 }
 
-function exists(path: string): boolean {
-  return statSync(path, { throwIfNoEntry: false }) !== undefined
+/** The open turn of a session: its start and age, and the task label when it is this turn's. */
+function runningTurn(state: string, now: number) {
+  const [start, end] = (readIfExists(state) ?? '').trim().split(/\s+/)
+  if (!start || end) return undefined
+  const [labelStart, label] = (readIfExists(`${state}.summary`) ?? '').replace(/\n$/, '').split('\t')
+  return { start: Number(start), seconds: now - Number(start), label: labelStart === start && label ? label : undefined }
 }
 
-/** Builds the View from the stdin JSON and the files. Pure apart from reading files. */
-export function collect(input: any, now = nowSeconds(), date = new Date(now * 1000)): View {
+/** Builds the view from the stdin JSON, the files and the environment. */
+export function collect(input: any, now = nowSeconds(), date = new Date(now * 1000), env = process.env) {
   const p = paths()
   const usage = readJsonIfExists(p.usage) ?? {}
   const ccusage = readJsonIfExists(p.ccusage)
@@ -158,7 +100,7 @@ export function collect(input: any, now = nowSeconds(), date = new Date(now * 10
   const size = num(cw.context_window_size)
   const pct = cw.used_percentage ?? (cur !== undefined && size ? (cur * 100) / size : undefined)
 
-  // Claude Code's rate_limits first; the OAuth usage endpoint until those are populated.
+  // Claude Code's rate_limits first; the OAuth usage endpoint until those arrive.
   const sd = input.rate_limits?.seven_day
   const week: Limit =
     sd?.used_percentage != null
@@ -166,13 +108,21 @@ export function collect(input: any, now = nowSeconds(), date = new Date(now * 10
       : { used: round(usage.seven_day?.utilization), resetsAt: epoch(usage.seven_day?.resets_at) }
   const fableLimit = (usage.limits ?? []).find((l: any) => l?.scope?.model?.display_name === 'Fable')
 
-  const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`
-  const mo = ccusage ? (ccusage.monthly ?? []).find((m: any) => m.month === monthKey) : undefined
+  const monthKey = monthKeyOf(date)
+  const previousKey = monthKeyOf(new Date(date.getFullYear(), date.getMonth() - 1, 1))
+  const months: any[] = ccusage?.monthly ?? []
+  const mo = months.find(m => m.month === monthKey)
+  const prev = months.find(m => m.month === previousKey)
 
   const sid: string = input.session_id ?? ''
-  const home = homedir()
+  const turnState = SESSION_ID.test(sid) ? join(p.turns, sid) : undefined
+  const turn = turnState ? runningTurn(turnState, now) : undefined
+  const skill = turnState ? readIfExists(`${turnState}.skill`)?.trim() || undefined : undefined
+
   const cwd: string = input.workspace?.current_dir ?? input.cwd ?? process.cwd()
-  return {
+  const ssh = !!(env.SSH_CONNECTION || env.SSH_TTY)
+  const repo = input.workspace?.repo
+  const view: View = {
     now,
     date,
     model: input.model?.display_name ?? input.model?.id,
@@ -182,28 +132,63 @@ export function collect(input: any, now = nowSeconds(), date = new Date(now * 10
     week,
     fable: { used: round(fableLimit?.percent), resetsAt: epoch(fableLimit?.resets_at) },
     month: ccusage ? { cost: mo?.totalCost ?? 0, tokens: mo?.totalTokens ?? 0 } : undefined,
-    turn: SESSION_ID.test(sid) ? runningTurn(join(p.turns, sid), now) : undefined,
-    user: process.env.USER || process.env.LOGNAME || userInfo().username,
+    turn: turn && { seconds: turn.seconds, label: turn.label },
     host: hostname().split('.')[0]!,
-    cwd: tildify(cwd, home),
+    cwd: tildify(cwd, homedir()),
     branch: gitBranch(cwd),
+    ssh,
+    skill,
+    repoUrl: repo?.host === 'github.com' && repo.owner && repo.name ? `https://github.com/${repo.owner}/${repo.name}` : undefined,
+    cwdUrl: ssh ? undefined : pathToFileURL(cwd).href,
   }
+  const extra: Extra = {
+    ctxInput: num(u?.input_tokens),
+    ctxCacheRead: num(u?.cache_read_input_tokens),
+    ctxCacheCreation: num(u?.cache_creation_input_tokens),
+    monthKey,
+    previous: prev && { key: previousKey, cost: prev.totalCost ?? 0, tokens: prev.totalTokens ?? 0 },
+    sessionCost: num(input.cost?.total_cost_usd),
+    turnStart: turn?.start,
+  }
+  return { view, extra }
 }
 
-/** The folder with the home folder shown as ~ (case-blind on Windows, as its paths are). */
-export function tildify(dir: string, home: string, windows = IS_WINDOWS): string {
-  const key = (s: string) => (windows ? s.toLowerCase() : s)
-  if (key(dir) === key(home)) return '~'
-  const seps = windows ? ['\\', '/'] : ['/']
-  return seps.some(s => key(dir).startsWith(key(home) + s)) ? '~' + dir.slice(home.length) : dir
+/** The two lines in the style the settings select. */
+export function format(v: View, s: Settings, env = process.env): string {
+  const tier = detectTier(env)
+  return s.style === 'quiet' ? quiet(v, s, tier !== 'none') : hud(v, s, tier)
 }
 
-/** The open turn of a session: its age, and the Haiku task label when it is for this turn. */
-function runningTurn(state: string, now: number): View['turn'] {
-  const [start, end] = (readIfExists(state) ?? '').trim().split(/\s+/)
-  if (!start || end) return undefined
-  const [labelStart, label] = (readIfExists(`${state}.summary`) ?? '').replace(/\n$/, '').split('\t')
-  return { seconds: now - Number(start), label: labelStart === start && label ? label : undefined }
+/** The content of <sid>.view.json: stable between renders unless something changed. */
+export function viewFile(v: View, x: Extra, s: Settings) {
+  const limits = ([['Weekly', v.week], ['Fable', v.fable]] as const)
+    .filter(([, l]) => l?.used !== undefined)
+    .map(([label, l]) => {
+      const used = Math.min(100, Math.max(0, l!.used!))
+      const stale = l!.resetsAt !== undefined && l!.resetsAt < v.now
+      return { label, used, resetsAt: l!.resetsAt, stale, level: stale ? 'ok' : sevOf(used, LIMIT_WARN, LIMIT_CRIT) }
+    })
+  return {
+    version: 1,
+    limits,
+    context: v.ctxPct === undefined ? undefined : {
+      pct: v.ctxPct, used: v.ctxCur, size: v.ctxSize,
+      input: x.ctxInput, cacheRead: x.ctxCacheRead, cacheCreation: x.ctxCacheCreation,
+    },
+    cost: v.month && {
+      month: { key: x.monthKey, cost: v.month.cost, tokens: v.month.tokens },
+      previous: x.previous,
+      session: x.sessionCost,
+    },
+    session: {
+      cwd: v.cwd,
+      branch: v.branch,
+      skill: v.skill,
+      turn: x.turnStart === undefined ? undefined : { start: x.turnStart, label: v.turn?.label },
+    },
+    settings: s,
+    usageUrl: USAGE_URL,
+  }
 }
 
 /** True, and the stamp renewed, when the last attempt is older than ttl seconds. */
@@ -221,21 +206,26 @@ export function startDueRefreshes(now = nowSeconds()) {
   if (due(join(p.cache, '.ccusage.stamp'), CCUSAGE_TTL, now)) spawnSelfDetached(['--refresh-ccusage'])
 }
 
-/** One render: publishes the session title and returns the lines. */
+/** One render: publishes the session title and the pane's data, returns the lines. */
 export function render(stdin: string): string {
   const p = paths()
   const now = nowSeconds()
   mkdirSync(p.turns, { recursive: true })
   writeFileSync(p.input, stdin) // the last payload, to debug
   const input = JSON.parse(stdin)
+  const settings = loadSettings()
+  const { view, extra } = collect(input, now)
 
-  // Publish Claude Code's session title (fixed after the first prompt, or set by /rename):
-  // context for the Haiku scope label, and what the session-scope mod shows until the
-  // first label exists. The mod API has no getter for it. Written only when it changes.
   const sid: string = input.session_id ?? ''
-  if (input.session_name && SESSION_ID.test(sid)) {
+  if (SESSION_ID.test(sid)) {
+    // Claude Code's session title (fixed after the first prompt, or set by /rename): context
+    // for the Haiku scope label, and what the mod shows until the first label exists.
     const title = join(p.turns, `${sid}.title`)
-    if (readIfExists(title)?.trim() !== input.session_name) writeAtomic(title, `${input.session_name}\n`)
+    if (input.session_name && readIfExists(title)?.trim() !== input.session_name)
+      writeAtomic(title, `${input.session_name}\n`)
+    const pane = join(p.turns, `${sid}.view.json`)
+    const json = JSON.stringify(viewFile(view, extra, settings))
+    if (readIfExists(pane) !== json) writeAtomic(pane, json)
   }
-  return format(collect(input, now))
+  return format(view, settings)
 }

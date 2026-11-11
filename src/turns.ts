@@ -6,7 +6,7 @@
 //   <sid>.prompt.<t> the prompt that opened the turn started at t, for the labeler
 //   <sid>.labeled    when the last label call started
 //   <sid>.summary    "<turn start>\t<task label>", shown next to the timer
-//   <sid>.scope      what the session is about now, drawn by the session-scope mod
+//   <sid>.scope      what the session is about now, drawn by the mod
 //   <sid>.title      Claude Code's session title (render.ts writes it)
 //
 // A hook must print nothing: UserPromptSubmit stdout is added to the prompt.
@@ -21,6 +21,7 @@ import {
   writeAtomic,
 } from './env.ts'
 import { SESSION_ID } from './render.ts'
+import { cut } from './style/common.ts'
 
 const LABEL_EVERY = 90 // seconds between task relabels while the agent works
 const HISTORY_LINES = 8 // prompts kept per session as context for the labels
@@ -166,22 +167,29 @@ export function turnHook(kind: HookKind, hook: any, deps: Deps = defaultDeps()) 
 // ---------------------------------------------------------------------------------------
 // Haiku labels: one detached `claude -p` call each, published as
 //   TASK  -> <sid>.summary  (next to the turn timer)
-//   SCOPE -> <sid>.scope    (what the session is about now; the session-scope mod draws it)
+//   SCOPE -> <sid>.scope    (what the session is about now; the mod draws it)
 // ---------------------------------------------------------------------------------------
 
 const SUMMARY_SYSTEM = `You label work for a terminal status line. Reply with exactly two lines and nothing else:
-TASK: <2-5 words: what is being worked on right now>
-SCOPE: <2-6 words: the topic this session is working on now>
+TASK: <2-5 words, starts with a verb: the step in work right now>
+SCOPE: <2-4 words, a noun phrase, at most 32 characters: the topic of this session>
 For TASK: when recent agent activity is given, name what its last few steps are doing; otherwise name what the latest request asks for. Use earlier requests only as context, e.g. to resolve what a short follow-up refers to.
 For SCOPE: name the overall topic, not the current step. Keep the current scope label while the work is still on that topic; replace it once the work has moved on.
 Write in the language of the requests. No quotes, no trailing punctuation.`
 
-/** One clean line of at most 48 columns. */
-export function label(text: string): string {
-  let s = text.replace(/[\x00-\x1f\x7f"`]/g, '').trim().replace(/\.$/, '')
-  const chars = [...s]
-  if (chars.length > 48) s = chars.slice(0, 47).join('') + '…'
-  return s
+export const TASK_CELLS = 40 // shown next to the turn timer
+export const SCOPE_CELLS = 32 // shown on the mode line, after 35 to 39 cells of Claude Code's text
+
+/**
+ * One clean line of at most max terminal cells. A longer one is cut at its last word that
+ * fits, with an ellipsis; when that would lose more than half of it, at the cell limit.
+ */
+export function label(text: string, max: number): string {
+  const s = text.replace(/[\x00-\x1f\x7f"`]/g, '').trim().replace(/\.$/, '')
+  if (Bun.stringWidth(s) <= max) return s
+  const head = cut(s, max, '…').slice(0, -1) // what fits next to the ellipsis
+  const space = head.lastIndexOf(' ')
+  return (space >= head.length / 2 ? head.slice(0, space) : head).trimEnd() + '…'
 }
 
 /** The main agent's last steps from the transcript, one line each, oldest first. */
@@ -238,7 +246,7 @@ export function parseLabels(out: string): { task: string; scope: string } {
     else if (l.startsWith('SCOPE:')) scope = l.slice('SCOPE:'.length)
   }
   if (!task && !scope) task = out.split('\n')[0] ?? '' // the model ignored the format
-  return { task: label(task), scope: label(scope) }
+  return { task: label(task, TASK_CELLS), scope: label(scope, SCOPE_CELLS) }
 }
 
 export function summarize(sid: string, start: string, transcript: string) {

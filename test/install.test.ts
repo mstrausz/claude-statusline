@@ -5,13 +5,15 @@ import { modFiles } from '../src/mod-files.ts' with { type: 'macro' }
 const POSIX: Targets = {
   statusLine: '/home/me/.claude/bin/claude-statusline',
   bin: '/home/me/.claude/bin/claude-statusline',
-  modDir: '/home/me/.claude/mods/session-scope',
+  modDir: '/home/me/.claude/mods/statusbar',
+  legacyModDir: '/home/me/.claude/mods/session-scope',
   delimiter: ':',
 }
 const WINDOWS: Targets = {
   statusLine: '~/.claude/bin/claude-statusline.exe',
   bin: 'C:\\Users\\Me\\.claude\\bin\\claude-statusline.exe',
-  modDir: 'C:\\Users\\Me\\.claude\\mods\\session-scope',
+  modDir: 'C:\\Users\\Me\\.claude\\mods\\statusbar',
+  legacyModDir: 'C:\\Users\\Me\\.claude\\mods\\session-scope',
   delimiter: ';',
 }
 
@@ -103,8 +105,7 @@ test('statusLineCommand', () => {
 })
 
 test('the binary carries the mod, without its tests or generated types', () => {
-  const files = Object.keys(modFiles()).sort()
-  expect(files).toEqual([
-    '.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/register.tsx', 'tsconfig.json', 'types/index.d.ts',
-  ])
+  const files = Object.keys(modFiles())
+  for (const f of ['.claude-plugin/plugin.json', 'hooks/hooks.json', 'hooks/register.tsx']) expect(files).toContain(f)
+  expect(files.filter(f => /\.test\.tsx?$|^\.claude-plugin\/types\//.test(f))).toEqual([])
 })

@@ -129,13 +129,16 @@ test('interruptedSince ignores a missing transcript', () => {
   expect(interruptedSince('/nonexistent/t.jsonl', T0)).toBe(false)
 })
 
-test('label: one clean line of at most 48 columns', () => {
-  expect(label('  Fix "the" `importer`.')).toBe('Fix the importer')
-  expect(label('x'.repeat(60))).toBe('x'.repeat(47) + '…')
-  expect([...label('é'.repeat(48))].length).toBe(48)
+test('label: one clean line within its cells, cut at a word', () => {
+  expect(label('  Fix "the" `importer`.', 40)).toBe('Fix the importer')
+  expect(label('Belgian tariff tree import for chapter eighty-four', 32)).toBe('Belgian tariff tree import for…')
+  expect(label('x'.repeat(60), 40)).toBe('x'.repeat(39) + '…') // no space: cut at the cap
+  expect(label('日本語のラベルはとても長いのでここで切ります', 32)).toBe('日本語のラベルはとても長いので…') // 2 cells each
+  expect(Bun.stringWidth(label('é'.repeat(48), 32))).toBe(32)
 })
 
 test('parseLabels', () => {
   expect(parseLabels('TASK: Fix importer\nSCOPE: Tariff tree\n')).toEqual({ task: 'Fix importer', scope: 'Tariff tree' })
+  expect(parseLabels('TASK: x\nSCOPE: ' + 'word '.repeat(10)).scope).toBe('word word word word word word…')
   expect(parseLabels('Just a phrase\nmore')).toEqual({ task: 'Just a phrase', scope: '' })
 })

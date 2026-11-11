@@ -7,6 +7,7 @@ import { logError, readStdin } from './env.ts'
 import { install, InstallError, uninstall } from './install.ts'
 import { refreshCcusage, refreshUsage, runJob } from './refresh.ts'
 import { render, startDueRefreshes } from './render.ts'
+import { SPECS, saveSetting, SettingsError } from './settings.ts'
 import { summarize, turnHook, type HookKind } from './turns.ts'
 
 const HOOKS: Record<string, HookKind> = {
@@ -20,7 +21,15 @@ const USAGE = `claude-statusline ${version}
 
   claude-statusline install     install into Claude Code (CLAUDE_CONFIG_DIR or ~/.claude)
   claude-statusline uninstall   remove it again
+  claude-statusline style hud|quiet
+  claude-statusline glyphs unicode|ascii|nerd
+  claude-statusline motion on|off
+  claude-statusline links on|off
+  claude-statusline width 40..400|auto
   claude-statusline --version
+
+The settings go into claude-statusline.json in the config folder; /statusbar in Claude Code
+does the same. An environment variable (CLAUDE_STATUSLINE_STYLE, ...) wins over the file.
 
 Claude Code runs it with no arguments as the status line, and with --turn-* as hooks.`
 
@@ -46,6 +55,16 @@ async function main(args: string[]): Promise<number> {
     // Code reports as a hook error without blocking the turn.
     turnHook(HOOKS[cmd]!, JSON.parse(readStdin()))
     return 0
+  }
+  if (cmd in SPECS) {
+    try {
+      console.log(saveSetting(cmd, rest[0]))
+      return 0
+    } catch (e) {
+      if (!(e instanceof SettingsError)) throw e
+      console.error(e.message)
+      return 2
+    }
   }
   switch (cmd) {
     case '--refresh-usage':

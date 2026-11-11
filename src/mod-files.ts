@@ -4,7 +4,7 @@
 import { readdirSync, readFileSync } from 'node:fs'
 import { join, relative } from 'node:path'
 
-const MOD = join(import.meta.dir, '..', 'mods', 'session-scope')
+const MOD = join(import.meta.dir, '..', 'mods', 'statusbar')
 // Written by Claude Code when the mod loads, and the mod's own tests: not installed.
 const SKIP = /(^|\/)\.claude-plugin\/types\/|\.test\.tsx?$/
 

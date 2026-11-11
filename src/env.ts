@@ -31,7 +31,8 @@ export function paths(config = configDir()) {
     input: join(cache, 'statusline-input.json'),
     log: join(cache, 'statusline.log'),
     bin: join(config, 'bin', `claude-statusline${EXE}`),
-    mod: join(config, 'mods', 'session-scope'),
+    mod: join(config, 'mods', 'statusbar'),
+    legacyMod: join(config, 'mods', 'session-scope'), // the mod's name up to 0.2
     legacyScript: join(config, 'statusline.sh'),
   }
 }
