@@ -170,7 +170,7 @@ export function hud(v: View, s: Settings, tier: Tier): string {
   const line1 = (d: (typeof DENSITIES)[number]): string => {
     const b1 = HUD.chrome1, b2 = HUD.chrome2
     const segs: Seg[] = [
-      seg(b2, v.model ? P((nerd ? `${NERD.model} ` : '') + v.model, HUD.model, b2, true) : P(ell, HUD.muted, b2)),
+      seg(HUD.lead, v.model ? P((nerd ? `${NERD.model} ` : '') + v.model, HUD.model, HUD.lead, true) : P(ell, HUD.fillDim, HUD.lead)),
     ]
     if (v.ctxPct === undefined) segs.push(seg(b1, P(`ctx ${ell}`, HUD.muted, b1)))
     else {
@@ -206,14 +206,14 @@ export function hud(v: View, s: Settings, tier: Tier): string {
 
   // Line 2: [host:]folder (branch) | skill badge | spinner, timer, task label
   const line2 = (path: string, label: string | undefined): string => {
-    const b1 = HUD.chrome1, b2 = HUD.chrome2
-    let where = v.ssh ? P(`${nerd ? `${NERD.host} ` : ''}${v.host}:`, HUD.muted, b2) : ''
-    where += link(v.cwdUrl, P((nerd ? `${NERD.folder} ` : '') + path, HUD.folder, b2))
+    const b1 = HUD.chrome1, place = HUD.place
+    let where = v.ssh ? P(`${nerd ? `${NERD.host} ` : ''}${v.host}:`, HUD.fillDim, place) : ''
+    where += link(v.cwdUrl, P((nerd ? `${NERD.folder} ` : '') + path, HUD.folder, place))
     if (v.branch) {
       const b = cut(v.branch, BRANCH_MAX, ell)
-      where += P(' ', HUD.text, b2) + link(branchUrl(v), P(nerd ? `${NERD.branch} ${b}` : `(${b})`, HUD.branch, b2))
+      where += P(' ', HUD.text, place) + link(branchUrl(v), P(nerd ? `${NERD.branch} ${b}` : `(${b})`, HUD.branch, place))
     }
-    const segs: Seg[] = [seg(b2, where)]
+    const segs: Seg[] = [seg(place, where)]
 
     const name = v.skill ? cut(skillName(v.skill), SKILL_MAX, ell) : ''
     const badgeText = name ? (nerd ? `${NERD.skill} ${name}` : `/${name}`) : ''

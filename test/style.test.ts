@@ -121,7 +121,8 @@ describe('color schemes', () => {
   // WCAG contrast: 4.5 for body text, 3 for labels and accents; the alarm text is bold.
   const NEEDS: [Role, Role, number][] = [
     ['text', 'chrome1', 4.5], ['text', 'chrome2', 4.5], ['badgeText', 'cyan', 4.5], ['alarmText', 'red', 4.5],
-    ...(['muted', 'model', 'folder', 'branch', 'amber'] as const).flatMap((r): [Role, Role, number][] => [[r, 'chrome1', 3], [r, 'chrome2', 3]]),
+    ['model', 'lead', 4.5], ['folder', 'place', 4.5], ['branch', 'place', 3], ['fillDim', 'place', 3], ['fillDim', 'lead', 3],
+    ...(['muted', 'amber'] as const).flatMap((r): [Role, Role, number][] => [[r, 'chrome1', 3], [r, 'chrome2', 3]]),
   ]
 
   test.each(THEME_NAMES.filter(n => n !== 'terminal'))('%s: the text on each segment fill is readable', name => {

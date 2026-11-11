@@ -80,19 +80,22 @@ in the status line instead of a silent default.
 ### Color schemes
 
 The `theme` setting changes the colors of the hud style; its shapes and its content stay
-the same. `claude-statusline themes` draws every scheme in your terminal, so you can
-compare them before you switch:
+the same. A named scheme fills the model segment and the folder segment with its accent
+colors, gives the data segments its surface colors, and gives the calm part of each gauge
+its accent hues. The warn and critical colors stay amber and red in every scheme, so a
+warning reads the same. `claude-statusline themes` draws every scheme in your terminal,
+so you can compare them before you switch:
 
-| Scheme | Colors |
-| --- | --- |
-| `default` | dark segments, violet model, teal-to-red gauges |
-| `terminal` | your terminal's own 16 colors, so it follows your terminal's color scheme |
-| `catppuccin` | Catppuccin Mocha |
-| `catppuccin-latte` | Catppuccin Latte, light segments for a light terminal |
-| `nord` | Nord |
-| `dracula` | Dracula |
-| `gruvbox` | Gruvbox dark |
-| `tokyo-night` | Tokyo Night |
+| Scheme | Model and folder segments | Gauges, calm part |
+| --- | --- | --- |
+| `default` | dark, with violet and sky text | teal to lime |
+| `terminal` | your terminal's own 16 colors, so it follows your terminal's color scheme | green |
+| `catppuccin` | Catppuccin Mocha: mauve and blue | blue to mauve |
+| `catppuccin-latte` | Catppuccin Latte: mauve and blue, on light data segments for a light terminal | blue to mauve |
+| `nord` | Nord: frost cyan and frost blue | frost blue to frost cyan |
+| `dracula` | Dracula: purple and pink | purple to pink |
+| `gruvbox` | Gruvbox dark: blue and aqua | blue to aqua |
+| `tokyo-night` | Tokyo Night: blue and magenta | blue to cyan |
 
 The named schemes use the colors of the published palettes. Where a palette color is too
 light or too dark for text on the segment fill, the scheme uses a nearby shade; a test
