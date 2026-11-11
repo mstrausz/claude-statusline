@@ -18,7 +18,7 @@ const INDENT = ' '.repeat(LABEL)
 const CTX_WARN = 50 // src/style/common.ts: the context window's levels
 const CTX_CRIT = 80
 const LEVEL_COLOR: Record<Level, 'success' | 'warning' | 'error'> = { ok: 'success', warn: 'warning', crit: 'error' }
-const SELECTS: SettingName[] = ['style', 'glyphs', 'motion', 'links']
+const SELECTS: SettingName[] = ['style', 'theme', 'glyphs', 'motion', 'links']
 // The usage endpoint refuses most requests (429), so the limits can be minutes old; past
 // this age the pane says how old, in the warning color.
 const LIMITS_OLD_S = 10 * 60
@@ -174,7 +174,8 @@ export function drawPane($: EngineInterface, e: RenderInput<'Pane'>, d: PaneData
   const select = (name: SettingName) => (
     <Select
       key={name}
-      label={SPECS[name].title}
+      // The theme colors the hud style only: quiet uses the terminal's own colors.
+      label={name === 'theme' ? 'Theme (hud)' : SPECS[name].title}
       options={SPECS[name].values.map(value => ({ value }))}
       value={shown(name, d.settings, data)}
       onSelect={value => pick(name, value)}
@@ -198,9 +199,10 @@ export function drawPane($: EngineInterface, e: RenderInput<'Pane'>, d: PaneData
         {title('SETTINGS', false)}
         <Box flexDirection="row" columnGap={2}>
           {select('style')}
-          {select('glyphs')}
+          {select('theme')}
         </Box>
         <Box flexDirection="row" columnGap={2}>
+          {select('glyphs')}
           {select('motion')}
           {select('links')}
         </Box>

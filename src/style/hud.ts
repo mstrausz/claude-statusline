@@ -3,6 +3,7 @@
 // what makes truecolor safe without knowing the terminal's background.
 
 import type { Settings } from '../settings.ts'
+import { type Col, type RGB, type Theme, theme } from './themes.ts'
 import {
   BRANCH_MAX, branchUrl, CTX_CRIT, CTX_WARN, LIMIT_CRIT, LIMIT_WARN, MONTHS, PATH_MAX, SKILL_MAX, USAGE_URL,
   baseName, cells, count, cut, dur, limitsOf, money, osc8, placeCountdowns, sevOf, shortPath, skillName,
@@ -34,41 +35,10 @@ export function detectTier(env: Record<string, string | undefined>, platform: st
   return '16'
 }
 
-type RGB = [number, number, number]
-/** One color in all tiers: RGB (truecolor, and the nearest 256-color index) and the 16-color codes. */
-type Col = { rgb: RGB; fg16: number; bg16: number }
-
-const hexRgb = (h: string): RGB => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)) as RGB
-const col = (h: string, fg16: number, bg16 = fg16 + 10): Col => ({ rgb: hexRgb(h), fg16, bg16 })
-
-// The palette: the 16-color foreground code, then the 16-color background code (default fg + 10).
-const HUD = {
-  chrome1: col('#14161c', 30), //     segment background, dark
-  chrome2: col('#252833', 30), //     segment background, one step lighter (16 colors: the same black)
-  track: col('#343946', 37, 40), //   gauge track
-  text: col('#e6edf3', 97), //        values, timer, task label
-  muted: col('#9aa4b2', 37), //       labels, details, countdown
-  model: col('#b794ff', 97), //       model name (violet)
-  folder: col('#7dd3fc', 96), //      folder (sky)
-  branch: col('#f472b6', 95), //      branch (pink)
-  cyan: col('#22d3ee', 96, 46), //    skill badge fill, spinner
-  badgeText: col('#04222a', 30), //   text on the skill badge
-  amber: col('#fbbf24', 93), //       value at the warn level
-  red: col('#ff4d5e', 91, 41), //     alarm fill (critical level)
-  alarmText: col('#14060a', 97), //   text on the alarm fill (16 colors: bright white on red)
-  alarmFill: col('#ffe14d', 93), //   gauge fill inside the alarm (yellow)
-  alarmTrack: col('#7a1626', 30), //  gauge track inside the alarm
-}
-
-// The gauge gradient, calm to hot. Its stops move with the thresholds of the gauge.
-const G_TEAL = hexRgb('#2dd4bf'), G_LIME = hexRgb('#a3e635'), G_AMBER = hexRgb('#fbbf24')
-const G_RED = hexRgb('#ff4d5e'), G_HOT = hexRgb('#ff2e88')
-
 /** The color at position p (0..1) of a gauge with the given thresholds (percent). */
-function gradient(p: number, warn: number, crit: number): RGB {
-  const stops: [number, RGB][] = [
-    [0, G_TEAL], [(0.6 * warn) / 100, G_LIME], [warn / 100, G_AMBER], [crit / 100, G_RED], [1, G_HOT],
-  ]
+function gradient(stops5: Theme['gradient'], p: number, warn: number, crit: number): RGB {
+  const [calm, lime, amber, red, hot] = stops5
+  const stops: [number, RGB][] = [[0, calm], [(0.6 * warn) / 100, lime], [warn / 100, amber], [crit / 100, red], [1, hot]]
   for (let i = 1; i < stops.length; i++) {
     const [p0, a] = stops[i - 1]!, [p1, b] = stops[i]!
     if (p <= p1) {
@@ -76,7 +46,7 @@ function gradient(p: number, warn: number, crit: number): RGB {
       return a.map((x, k) => Math.round(x + (b[k]! - x) * t)) as RGB
     }
   }
-  return G_HOT
+  return hot
 }
 
 const CUBE = [0, 95, 135, 175, 215, 255]
@@ -128,6 +98,9 @@ const DENSITIES = [
 ]
 
 export function hud(v: View, s: Settings, tier: Tier): string {
+  // The terminal scheme is the hud shapes in the terminal's own 16 colors.
+  if (s.theme === 'terminal' && tier !== 'none') tier = '16'
+  const HUD = theme(s.theme)
   const nerd = s.glyphs === 'nerd', ascii = s.glyphs === 'ascii', plain = tier === 'none'
   const ell = ascii ? '...' : '…'
   const bar = ascii ? '|' : '│'
@@ -154,7 +127,7 @@ export function hud(v: View, s: Settings, tier: Tier): string {
       const fg: Col =
         kind === 'alarm' ? HUD.alarmFill
         : kind === 'stale' ? HUD.muted
-        : { rgb: gradient((i + 0.5) / n, warn, crit), fg16: sev === 'crit' ? 91 : sev === 'warn' ? 93 : 92, bg16: 0 }
+        : { rgb: gradient(HUD.gradient, (i + 0.5) / n, warn, crit), fg16: sev === 'crit' ? 91 : sev === 'warn' ? 93 : 92, bg16: 0 }
       const filled = i < full || (i === full && part > 0)
       const ch = i < full ? (ascii ? '#' : FULL_BLOCK) : i === full && part ? EIGHTHS[part]! : shade ? (ascii ? '.' : LIGHT_SHADE) : ' '
       out += P(ch, filled ? fg : HUD.muted, track)
@@ -197,7 +170,7 @@ export function hud(v: View, s: Settings, tier: Tier): string {
   const line1 = (d: (typeof DENSITIES)[number]): string => {
     const b1 = HUD.chrome1, b2 = HUD.chrome2
     const segs: Seg[] = [
-      seg(b2, v.model ? P((nerd ? `${NERD.model} ` : '') + v.model, HUD.model, b2, true) : P(ell, HUD.muted, b2)),
+      seg(HUD.lead, v.model ? P((nerd ? `${NERD.model} ` : '') + v.model, HUD.model, HUD.lead, true) : P(ell, HUD.fillDim, HUD.lead)),
     ]
     if (v.ctxPct === undefined) segs.push(seg(b1, P(`ctx ${ell}`, HUD.muted, b1)))
     else {
@@ -233,14 +206,14 @@ export function hud(v: View, s: Settings, tier: Tier): string {
 
   // Line 2: [host:]folder (branch) | skill badge | spinner, timer, task label
   const line2 = (path: string, label: string | undefined): string => {
-    const b1 = HUD.chrome1, b2 = HUD.chrome2
-    let where = v.ssh ? P(`${nerd ? `${NERD.host} ` : ''}${v.host}:`, HUD.muted, b2) : ''
-    where += link(v.cwdUrl, P((nerd ? `${NERD.folder} ` : '') + path, HUD.folder, b2))
+    const b1 = HUD.chrome1, place = HUD.place
+    let where = v.ssh ? P(`${nerd ? `${NERD.host} ` : ''}${v.host}:`, HUD.fillDim, place) : ''
+    where += link(v.cwdUrl, P((nerd ? `${NERD.folder} ` : '') + path, HUD.folder, place))
     if (v.branch) {
       const b = cut(v.branch, BRANCH_MAX, ell)
-      where += P(' ', HUD.text, b2) + link(branchUrl(v), P(nerd ? `${NERD.branch} ${b}` : `(${b})`, HUD.branch, b2))
+      where += P(' ', HUD.text, place) + link(branchUrl(v), P(nerd ? `${NERD.branch} ${b}` : `(${b})`, HUD.branch, place))
     }
-    const segs: Seg[] = [seg(b2, where)]
+    const segs: Seg[] = [seg(place, where)]
 
     const name = v.skill ? cut(skillName(v.skill), SKILL_MAX, ell) : ''
     const badgeText = name ? (nerd ? `${NERD.skill} ${name}` : `/${name}`) : ''

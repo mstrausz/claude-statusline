@@ -9,6 +9,8 @@ import { configFile, fileState, message, parseObject, readIfExists } from './fil
 
 type ConfigValue = NonNullable<ConfigFile[SettingName]>
 
+export const THEMES = ['default', 'terminal', 'catppuccin', 'catppuccin-latte', 'nord', 'dracula', 'gruvbox', 'tokyo-night'] as const
+
 const WIDTH_MIN = 40
 const WIDTH_MAX = 400
 
@@ -46,6 +48,12 @@ export const SPECS: Record<SettingName, Spec> = {
     title: 'Style',
     ...oneOf(['hud', 'quiet']),
     env: 'CLAUDE_STATUSLINE_STYLE',
+  },
+  theme: {
+    name: 'theme',
+    title: 'Theme',
+    ...oneOf(THEMES),
+    env: 'CLAUDE_STATUSLINE_THEME',
   },
   glyphs: {
     name: 'glyphs',
@@ -87,6 +95,8 @@ export async function readEnvOf($: EngineInterface, name: SettingName) {
   switch (name) {
     case 'style':
       return $.env.get('CLAUDE_STATUSLINE_STYLE')
+    case 'theme':
+      return $.env.get('CLAUDE_STATUSLINE_THEME')
     case 'glyphs':
       return $.env.get('CLAUDE_STATUSLINE_GLYPHS')
     case 'motion':

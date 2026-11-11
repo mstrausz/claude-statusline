@@ -10,7 +10,7 @@ describe('settings', () => {
 
   test('defaults without a file or variables', () => {
     expect(loadSettings({}, file())).toEqual(DEFAULTS)
-    expect(DEFAULTS).toEqual({ style: 'hud', glyphs: 'unicode', motion: true, links: true, width: 100 })
+    expect(DEFAULTS).toEqual({ style: 'hud', theme: 'default', glyphs: 'unicode', motion: true, links: true, width: 100 })
   })
 
   test('the file, then an environment variable over it', () => {
@@ -46,6 +46,15 @@ describe('settings', () => {
     expect(JSON.parse(readFileSync(file(), 'utf8')).width).toBeUndefined()
     expect(saveSetting('style', 'hud', { CLAUDE_STATUSLINE_STYLE: 'quiet' }, file()))
       .toBe('Status line style: hud. CLAUDE_STATUSLINE_STYLE is set, and it wins over the file.')
+  })
+
+  test('theme: a scheme name from the file, the variable or a command; others are errors', () => {
+    writeFileSync(file(), JSON.stringify({ theme: 'nord' }))
+    expect(loadSettings({}, file()).theme).toBe('nord')
+    expect(loadSettings({ CLAUDE_STATUSLINE_THEME: 'catppuccin-latte' }, file()).theme).toBe('catppuccin-latte')
+    expect(() => loadSettings({ CLAUDE_STATUSLINE_THEME: 'solarized' }, file())).toThrow('CLAUDE_STATUSLINE_THEME=solarized is not valid (default|terminal|')
+    expect(saveSetting('theme', 'dracula', {}, file())).toBe('Status line theme: dracula.')
+    expect(JSON.parse(readFileSync(file(), 'utf8')).theme).toBe('dracula')
   })
 
   test('saveSetting rejects a bad value or name and changes nothing', () => {

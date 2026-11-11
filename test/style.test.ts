@@ -2,7 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULTS, type Settings } from '../src/settings.ts'
 import { count, cut, dur, money, shortPath, skillName, strip, type View } from '../src/style/common.ts'
 import { detectTier, hud, to256 } from '../src/style/hud.ts'
+import { themesPreview } from '../src/style/preview.ts'
 import { quiet } from '../src/style/quiet.ts'
+import { type Role, THEME_NAMES, contrast, theme } from '../src/style/themes.ts'
 
 const NOW = 1_794_400_000
 const DATE = new Date(2026, 10, 11, 14, 56, 5) // local time, Nov
@@ -112,6 +114,51 @@ describe('hud (directions.md 9)', () => {
   test('the ascii set has no block or box glyph, the nerd set has Powerline shapes', () => {
     expect(strip(hud(FULL, set({ glyphs: 'ascii' }), '16'))).toMatch(/^[\x20-\x7e\n]*$/)
     expect(hud(FULL, set({ glyphs: 'nerd' }), 'truecolor')).toContain('')
+  })
+})
+
+describe('color schemes', () => {
+  // WCAG contrast: 4.5 for body text, 3 for labels and accents; the alarm text is bold.
+  const NEEDS: [Role, Role, number][] = [
+    ['text', 'chrome1', 4.5], ['text', 'chrome2', 4.5], ['badgeText', 'cyan', 4.5], ['alarmText', 'red', 4.5],
+    ['model', 'lead', 4.5], ['folder', 'place', 4.5], ['branch', 'place', 3], ['fillDim', 'place', 3], ['fillDim', 'lead', 3],
+    ...(['muted', 'amber'] as const).flatMap((r): [Role, Role, number][] => [[r, 'chrome1', 3], [r, 'chrome2', 3]]),
+  ]
+
+  test.each(THEME_NAMES.filter(n => n !== 'terminal'))('%s: the text on each segment fill is readable', name => {
+    const t = theme(name)
+    const low = NEEDS.filter(([fg, bg, min]) => contrast(t[fg].rgb, t[bg].rgb) < min)
+      .map(([fg, bg]) => `${fg} on ${bg}: ${contrast(t[fg].rgb, t[bg].rgb).toFixed(2)}`)
+    expect(low).toEqual([])
+  })
+
+  test('a scheme changes the truecolor and 256 colors, not the 16-color codes or the text', () => {
+    const at = (theme: any, tier: any) => hud(FULL, set({ theme }), tier)
+    expect(at('nord', 'truecolor')).toContain('48;2;46;52;64') // nord0, the segment fill
+    expect(at('nord', 'truecolor')).not.toEqual(at('default', 'truecolor'))
+    expect(at('nord', '256')).not.toEqual(at('default', '256'))
+    expect(at('nord', '16')).toEqual(at('default', '16'))
+    expect(strip(at('nord', 'truecolor'))).toEqual(strip(at('default', 'truecolor')))
+  })
+
+  test('the terminal scheme draws in the terminal\'s 16 colors at every tier, and none without color', () => {
+    expect(hud(FULL, set({ theme: 'terminal' }), 'truecolor')).toEqual(hud(FULL, set(), '16'))
+    expect(hud(FULL, set({ theme: 'terminal' }), 'truecolor')).not.toMatch(/[34]8;[25];/)
+    expect(hud(FULL, set({ theme: 'terminal' }), 'none')).not.toContain('\x1b')
+  })
+
+  test('quiet does not change with the scheme: it uses the terminal\'s colors', () => {
+    expect(quiet(FULL, set({ style: 'quiet', theme: 'dracula' }), true)).toEqual(quiet(FULL, set({ style: 'quiet' }), true))
+  })
+
+  test('the preview draws every scheme, marks the one in use, and says when the tier hides them', () => {
+    const out = themesPreview(set({ theme: 'gruvbox' }), 'truecolor', NOW, DATE)
+    for (const name of THEME_NAMES) expect(out).toContain(`\n${name}`.trimStart())
+    expect(out).toContain('gruvbox  (in use)')
+    expect(out).toContain('catppuccin-latte  (for light terminals)')
+    expect(strip(out)).toContain('Fable █████▌ 92%!')
+    expect(themesPreview(set(), '16', NOW, DATE)).toStartWith('This terminal shows 16 colors')
+    expect(themesPreview(set(), 'none', NOW, DATE)).toStartWith('Colors are off')
   })
 })
 

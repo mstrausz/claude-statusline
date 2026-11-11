@@ -45,7 +45,7 @@ const now = atom({ plugin: 'statusbar', key: 'now' } as const, 0)
 const POLL_MS = 3000
 const COMMAND = 'statusbar'
 const DESCRIPTION = 'Show the status line details, or change a status line setting'
-const HINT = '[style hud|quiet | glyphs unicode|ascii|nerd | motion on|off | links on|off | width <cells>|auto]'
+const HINT = '[style hud|quiet | theme <name> | glyphs unicode|ascii|nerd | motion on|off | links on|off | width <cells>|auto]'
 
 let polling = false
 
