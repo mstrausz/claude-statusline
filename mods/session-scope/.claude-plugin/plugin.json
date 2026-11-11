@@ -1,0 +1,6 @@
+{
+  "name": "session-scope",
+  "version": "0.1.0",
+  "description": "Shows the session title (what this session is about) at the end of the mode line under the prompt",
+  "types": "./types/index.d.ts"
+}
