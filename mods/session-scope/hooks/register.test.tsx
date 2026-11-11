@@ -12,10 +12,10 @@ const HINT = {
 const TURNS = '/home/me/.claude/cache/turns'
 const BASE = `${TURNS}/sid-1`
 
-function engine(on: On, files: Record<string, string>) {
+function engine(on: On, files: Record<string, string>, env: Record<string, string> = { HOME: '/home/me' }) {
   const session = { id: 'sid-1' }
   const clock = mock.clock(on)
-  on('env.get', () => ({ value: '/home/me' }))
+  on('env.get', (_, e) => ({ value: env[e.name] }))
   on('session.id', () => ({ value: session.id }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   // A path with no entry has no answer, which stands for a missing file: the read rejects.
@@ -68,4 +68,15 @@ test('after /clear or /resume the next poll reads the new session id', async ($,
   session.id = 'sid-2' // no session.start fires for the new id
   await clock.advance(3000)
   expect(await line($)).toBe('⏵⏵ auto mode on (shift+tab to cycle) · Resumed session label')
+})
+
+test('CLAUDE_CONFIG_DIR moves the files', async ($, on) => {
+  engine(on, { '/srv/claude/cache/turns/sid-1.scope': 'Elsewhere\n' }, { HOME: '/home/me', CLAUDE_CONFIG_DIR: '/srv/claude' })
+  expect(await lineFor($)).toBe('⏵⏵ auto mode on (shift+tab to cycle) · Elsewhere')
+})
+
+test('USERPROFILE, the home folder on Windows, comes before HOME', async ($, on) => {
+  // Git Bash also sets HOME; the binary uses os.homedir(), which reads USERPROFILE there.
+  engine(on, { '/users/me/.claude/cache/turns/sid-1.scope': 'On Windows\n' }, { USERPROFILE: '/users/me', HOME: '/home/other' })
+  expect(await lineFor($)).toBe('⏵⏵ auto mode on (shift+tab to cycle) · On Windows')
 })

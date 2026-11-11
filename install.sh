@@ -1,101 +1,132 @@
-#!/usr/bin/env bash
-# Installs the Claude Code statusline, its turn hooks and the session-scope mod into
-# ~/.claude, and merges the settings they need into ~/.claude/settings.json.
+#!/bin/sh
+# claude-statusline setup for macOS and Linux (WSL too). On Windows, use install.ps1.
 #
-# Safe to re-run: it updates the files in place and replaces its own settings entries
-# without duplicating them or touching anything else. settings.json is backed up first.
-set -euo pipefail
+# Gets a claude-statusline binary for this machine, then runs its own installer:
+#   1. bun found                        -> build the binary from this checkout
+#   2. no bun, gh signed in, a release  -> download the release binary for this machine
+#   3. neither                          -> install bun (Homebrew on macOS, else bun's own
+#                                          installer, plus unzip if it is missing), then build
+# Then it checks for the claude CLI, which writes the Haiku labels, and offers to install it.
+# It asks before it installs anything; --yes answers yes, and with no terminal the answer is no.
+#
+# Usage: ./install.sh [--yes] [--skip-claude]
+set -eu
 
-REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-CLAUDE_DIR="$HOME/.claude"
-SETTINGS="$CLAUDE_DIR/settings.json"
-STATUSLINE="$CLAUDE_DIR/statusline.sh"
-MOD="$CLAUDE_DIR/mods/session-scope"
+YES=0
+SKIP_CLAUDE=0
+for arg in "$@"; do
+  case $arg in
+    -y|--yes) YES=1 ;;
+    --skip-claude) SKIP_CLAUDE=1 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) printf 'unknown option: %s (see --help)\n' "$arg" >&2; exit 2 ;;
+  esac
+done
 
 say()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33mwarning:\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31merror:\033[0m %s\n' "$*" >&2; exit 1; }
 
-# --- 1. Dependencies --------------------------------------------------------------
-say "Checking dependencies"
-(( BASH_VERSINFO[0] >= 5 )) || die "bash 5 or newer is required (found $BASH_VERSION)"
-missing=()
-for cmd in jq curl flock setsid date stat; do
-  command -v "$cmd" >/dev/null || missing+=("$cmd")
-done
-(( ${#missing[@]} == 0 )) || die "missing required commands: ${missing[*]}"
-date -d @0 +%s >/dev/null 2>&1 && stat -c %Y / >/dev/null 2>&1 \
-  || die "GNU date and stat are required (this setup targets Linux / WSL)"
-command -v claude >/dev/null \
-  || warn "claude CLI not on PATH: the Haiku task/scope labels will not be generated"
-command -v npx >/dev/null \
-  || warn "npx not found: the month cost/tokens segment (ccusage) will stay empty"
-[ -f "$CLAUDE_DIR/.credentials.json" ] \
-  || warn "not signed in yet (no $CLAUDE_DIR/.credentials.json): run 'claude auth login'; until then the Fable weekly limit is not shown"
+ask() { # <question>: true for yes
+  [ "$YES" = 1 ] && return 0
+  [ -t 0 ] || return 1
+  printf '%s [y/N] ' "$1"
+  read -r reply
+  case $reply in [yY]*) return 0 ;; *) return 1 ;; esac
+}
 
-# --- 2. Files ---------------------------------------------------------------------
-say "Installing $STATUSLINE"
-mkdir -p "$CLAUDE_DIR"
-install -m 755 "$REPO/statusline.sh" "$STATUSLINE"
+REPO=$(cd "$(dirname "$0")" && pwd)
+case $(uname -s) in
+  Linux) os=linux ;;
+  Darwin) os=darwin ;;
+  MINGW*|MSYS*|CYGWIN*) die "on Windows, run install.ps1 in PowerShell" ;;
+  *) die "unsupported system: $(uname -s)" ;;
+esac
+case $(uname -m) in
+  x86_64|amd64) arch=x64 ;;
+  arm64|aarch64) arch=arm64 ;;
+  *) die "unsupported CPU: $(uname -m)" ;;
+esac
+BIN=$REPO/dist/claude-statusline
+SUDO=
+[ "$(id -u)" = 0 ] || SUDO=sudo
 
-say "Installing the session-scope mod into $MOD"
-if [ -d "$MOD" ]; then
-  [ "$(jq -r .name "$MOD/.claude-plugin/plugin.json" 2>/dev/null)" = session-scope ] \
-    || die "$MOD exists but is not this mod; move it away and re-run"
-  rm -rf "$MOD"
+find_bun() {
+  if command -v bun >/dev/null 2>&1; then command -v bun
+  elif [ -x "$HOME/.bun/bin/bun" ]; then printf '%s\n' "$HOME/.bun/bin/bun"
+  fi
+}
+
+build() { # <bun>
+  say "Building claude-statusline with $1"
+  (cd "$REPO" && "$1" install --frozen-lockfile && "$1" run build)
+}
+
+download_release() {
+  command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1 || return 1
+  repo=$(cd "$REPO" && gh repo view --json nameWithOwner -q .nameWithOwner 2>/dev/null) || return 1
+  gh release view --repo "$repo" >/dev/null 2>&1 || return 1
+  say "Downloading the latest claude-statusline release for $os-$arch from $repo"
+  mkdir -p "$REPO/dist"
+  gh release download --repo "$repo" --pattern "claude-statusline-$os-$arch" --output "$BIN" --clobber
+  chmod +x "$BIN"
+}
+
+install_package() { # <package>: with the package manager this machine has
+  pm=
+  for candidate in apt-get dnf yum pacman zypper apk; do
+    if command -v "$candidate" >/dev/null 2>&1; then pm=$candidate; break; fi
+  done
+  case $pm in
+    apt-get) cmd="$SUDO apt-get install -y $1" ;;
+    dnf|yum) cmd="$SUDO $pm install -y $1" ;;
+    pacman) cmd="$SUDO pacman -S --noconfirm $1" ;;
+    zypper) cmd="$SUDO zypper install -y $1" ;;
+    apk) cmd="$SUDO apk add $1" ;;
+    *) return 1 ;;
+  esac
+  ask "$1 is needed to install bun. Install it ($cmd)?" || return 1
+  $cmd # split on spaces on purpose: no part of it has one
+}
+
+install_bun() {
+  if [ "$os" = darwin ] && command -v brew >/dev/null 2>&1; then
+    ask "Bun is needed to build claude-statusline. Install it with Homebrew (brew install oven-sh/bun/bun)?" || return 1
+    brew install oven-sh/bun/bun
+    return
+  fi
+  command -v curl >/dev/null 2>&1 || die "curl is needed to install bun; install it with your package manager"
+  if [ "$os" = linux ] && ! command -v unzip >/dev/null 2>&1; then
+    install_package unzip || die "unzip is needed to install bun; install it with your package manager"
+  fi
+  ask "Bun is needed to build claude-statusline. Install it with its installer (curl -fsSL https://bun.sh/install | bash)?" || return 1
+  curl -fsSL https://bun.sh/install | bash
+}
+
+# --- 1. The binary -------------------------------------------------------------------
+bun=$(find_bun)
+if [ -n "$bun" ]; then
+  build "$bun"
+elif download_release; then
+  :
+elif install_bun; then
+  bun=$(find_bun)
+  [ -n "$bun" ] || die "bun is installed but not found; open a new terminal and run this again"
+  build "$bun"
+else
+  die "bun is needed to build claude-statusline: install it from https://bun.sh and run this again, or download a release binary and run: <binary> install"
 fi
-mkdir -p "$(dirname "$MOD")"
-cp -r "$REPO/mods/session-scope" "$MOD"
-rm -rf "$MOD/.claude-plugin/types"   # generated by Claude Code when the mod loads
 
-# --- 3. Settings ------------------------------------------------------------------
-say "Merging settings into $SETTINGS"
-[ -f "$SETTINGS" ] || echo '{}' >"$SETTINGS"
-jq -e 'type == "object"' "$SETTINGS" >/dev/null 2>&1 || die "$SETTINGS is not a JSON object; fix it first"
-backup="$SETTINGS.bak.$(date +%Y%m%d-%H%M%S)"
-cp "$SETTINGS" "$backup"
-
-old_sl=$(jq -r '.statusLine.command // empty' "$SETTINGS")
-if [ -n "$old_sl" ] && [ "$old_sl" != "$STATUSLINE" ]; then
-  warn "replacing your existing statusLine command ($old_sl); it is kept in $backup"
+# --- 2. The claude CLI, for the Haiku labels -----------------------------------------
+if ! command -v claude >/dev/null 2>&1 && [ ! -x "$HOME/.local/bin/claude" ]; then
+  if [ "$SKIP_CLAUDE" = 1 ]; then
+    warn "the claude CLI is not installed: there are no Haiku task and scope labels without it"
+  elif ask "The claude CLI is not installed, and the Haiku labels need it. Install it (curl -fsSL https://claude.ai/install.sh | bash)?"; then
+    curl -fsSL https://claude.ai/install.sh | bash
+  else
+    warn "without the claude CLI there are no Haiku task and scope labels"
+  fi
 fi
 
-jq --arg sl "$STATUSLINE" --arg mod "$MOD" '
-  # Replace this setup'"'"'s own entry for an event (recognised by its command), keep every
-  # other hook group as it is.
-  def ours: any(.hooks[]?; (.command // "") | test("statusline\\.sh --turn-"));
-  def hook(event; matcher; arg; async):
-    .hooks[event] = ([.hooks[event][]? | select(ours | not)]
-      + [ ( {hooks: [ {type: "command", command: "\($sl) \(arg)", timeout: 5}
-                      + (if async then {async: true} else {} end) ]}
-            + (if matcher then {matcher: matcher} else {} end) ) ]);
-
-  .statusLine = {type: "command", command: $sl, refreshInterval: 1}
-  | hook("UserPromptSubmit"; null;          "--turn-start";    false)
-  | hook("PreToolUse";       null;          "--turn-activity"; true)
-  | hook("Stop";             null;          "--turn-end";      false)
-  | hook("StopFailure";      null;          "--turn-end";      false)
-  | hook("Notification";     "idle_prompt"; "--turn-idle";     false)
-  | .env.CLAUDE_CODE_PLUGIN_DIRS =
-      ([(.env.CLAUDE_CODE_PLUGIN_DIRS // "") | split(":")[] | select(. != "" and . != $mod)]
-       + [$mod] | join(":"))
-' "$backup" >"$SETTINGS.tmp"
-mv "$SETTINGS.tmp" "$SETTINGS"
-
-# --- 4. Smoke test ----------------------------------------------------------------
-say "Smoke test"
-out=$(printf '{"model":{"display_name":"Smoke test"},"workspace":{"current_dir":"%s"}}' "$HOME" \
-      | "$STATUSLINE" | sed 's/\x1b\[[0-9;]*m//g')
-[[ $out == *"Smoke test"* ]] || die "the statusline did not render; output was: $out"
-printf '%s\n' "$out" | sed 's/^/    /'
-if command -v claude >/dev/null; then
-  claude plugin validate "$MOD" >/dev/null 2>&1 \
-    && say "session-scope mod validates" \
-    || warn "the session-scope mod did not validate: run 'claude plugin validate $MOD'"
-fi
-
-cat <<EOF
-
-Done. Restart running Claude Code sessions (exit, then 'claude --continue') so they
-load the hooks and the session-scope mod. Settings backup: $backup
-EOF
+# --- 3. Install into Claude Code -----------------------------------------------------
+exec "$BIN" install

@@ -4,10 +4,11 @@ import type { Engine, Register } from 'claude-code'
 // What this session is working on now, drawn dim at the end of the hint line under the
 // prompt, after the permission-mode pill. The engine puts its own " · " before `tail`.
 //
-// ~/.claude/statusline.sh keeps two files per session under ~/.claude/cache/turns/:
+// claude-statusline keeps two files per session in <config>/cache/turns/, where <config> is
+// Claude Code's config folder (CLAUDE_CONFIG_DIR, else .claude in the home folder):
 //   <session_id>.scope  a label Haiku rewrites each new turn from the recent prompts
 //   <session_id>.title  Claude Code's own session title (fixed after the first prompt),
-//                       the fallback until the first scope label exists
+//                       shown until the first scope label exists
 // The mod API has no getter for either, so this mod polls the files.
 //
 // Each poll reads the session id again: after /clear or /resume the process goes on
@@ -25,8 +26,16 @@ async function readLine($: Engine, path: string) {
   )
 }
 
-async function poll($: Engine, home: string) {
-  const base = `${home}/.claude/cache/turns/${await $.session.id()}`
+// The binary finds the home folder with os.homedir(): USERPROFILE on Windows, HOME elsewhere.
+async function turnsDir($: Engine) {
+  const config =
+    (await $.env.get('CLAUDE_CONFIG_DIR')) ||
+    `${(await $.env.get('USERPROFILE')) || (await $.env.get('HOME'))}/.claude`
+  return `${config}/cache/turns`
+}
+
+async function poll($: Engine, dir: string) {
+  const base = `${dir}/${await $.session.id()}`
   const text = (await readLine($, `${base}.scope`)) || (await readLine($, `${base}.title`))
   if (text !== (await read($, scope))) await update($, scope, () => text)
 }
@@ -34,9 +43,9 @@ async function poll($: Engine, home: string) {
 async function startPolling($: Engine) {
   if (polling) return
   polling = true
-  const home = await $.env.get('HOME')
-  await poll($, home)
-  $.clock.every(POLL_MS, () => void poll($, home))
+  const dir = await turnsDir($)
+  await poll($, dir)
+  $.clock.every(POLL_MS, () => void poll($, dir))
 }
 
 export const register: Register = on => {

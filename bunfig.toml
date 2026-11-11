@@ -1,0 +1,3 @@
+[test]
+# The mod has its own tests, run with: claude plugin test mods/session-scope
+root = "test"

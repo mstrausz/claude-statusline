@@ -1,0 +1,88 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  BUN_VERSION: 1.3.10
+
+jobs:
+  # The release binaries, cross-compiled on Linux as release.yml does; the test jobs run
+  # the one for their own system.
+  cross-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run build:all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries
+          path: dist/claude-statusline-*
+
+  test:
+    needs: cross-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, target: linux-x64 }
+          - { os: macos-latest, target: darwin-arm64 }
+          - { os: windows-latest, target: windows-x64.exe }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - uses: actions/download-artifact@v4
+        with:
+          name: binaries
+          path: cross
+      - name: Install the cross-compiled binary into a temporary config folder
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+        run: |
+          bin="cross/claude-statusline-${{ matrix.target }}"
+          chmod +x "$bin"
+          "$bin" --version
+          "$bin" install
+          test/ci-check.sh
+
+  # install.sh / install.ps1 on runners without bun set up: the dependency installation.
+  bootstrap:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
+    steps:
+      - uses: actions/checkout@v4
+      - name: Is bun there before?
+        shell: bash
+        run: command -v bun || echo "no bun on this runner"
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: ./install.sh --yes --skip-claude
+      - name: install.ps1 (Windows PowerShell 5.1)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\install.ps1 -Yes -SkipClaude
+      - name: Check the installation
+        shell: bash
+        run: test/ci-check.sh
