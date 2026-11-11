@@ -1,7 +1,7 @@
 import type { EngineInterface, RenderElement, RenderInput } from 'claude-code'
 
 import type { FileState, Level, SettingName, SettingsState, ViewFile } from '../types'
-import { count, dur, gauge, money, monthName, weekGone, when } from './format'
+import { count, dur, gauge, hm, money, monthName, weekGone, when } from './format'
 import { SPECS } from './settings'
 
 // The detail pane, section 12.6 of the design: opened only by the person's /statusbar,
@@ -19,6 +19,9 @@ const CTX_WARN = 50 // src/style/common.ts: the context window's levels
 const CTX_CRIT = 80
 const LEVEL_COLOR: Record<Level, 'success' | 'warning' | 'error'> = { ok: 'success', warn: 'warning', crit: 'error' }
 const SELECTS: SettingName[] = ['style', 'glyphs', 'motion', 'links']
+// The usage endpoint refuses most requests (429), so the limits can be minutes old; past
+// this age the pane says how old, in the warning color.
+const LIMITS_OLD_S = 10 * 60
 
 const pct = (n: number, level: Level) => `${Math.round(n)}%${level === 'crit' ? '!' : ''}`.padStart(5)
 const ctxLevel = (p: number): Level => (p >= CTX_CRIT ? 'crit' : p >= CTX_WARN ? 'warn' : 'ok')
@@ -68,12 +71,24 @@ export function drawPane($: EngineInterface, e: RenderInput<'Pane'>, d: PaneData
   const nowS = Math.floor(d.now / 1000)
   const data = d.view.status === 'ok' ? d.view.value : undefined
 
-  const title = (name: string, isEmpty: boolean) => (
+  const title = (name: string, isEmpty: boolean, note: RenderElement | string = '') => (
     <Text>
       <Text weight="bold">{name}</Text>
       {isEmpty ? <Text dimColor>{' …'}</Text> : ''}
+      {note}
     </Text>
   )
+  // When the limits were fetched: " · from 20:00", or " · from 19:42, 18 min old" when old.
+  const fetched = data?.limitsFetchedAt
+  const age = fetched === undefined ? 0 : nowS - fetched
+  const limitsNote =
+    fetched === undefined ? (
+      ''
+    ) : age > LIMITS_OLD_S ? (
+      <Text color="warning">{` · from ${hm(fetched)}, ${Math.floor(age / 60)} min old`}</Text>
+    ) : (
+      <Text dimColor>{` · from ${hm(fetched)}`}</Text>
+    )
   const row = (name: string, text: string) => (
     <Text>
       <Text dimColor>{name.padEnd(LABEL)}</Text>
@@ -165,9 +180,9 @@ export function drawPane($: EngineInterface, e: RenderInput<'Pane'>, d: PaneData
       onSelect={value => pick(name, value)}
     />
   )
-  const group = (name: string, rows: RenderElement[]) => (
+  const group = (name: string, rows: RenderElement[], note: RenderElement | string = '') => (
     <Box flexDirection="column">
-      {title(name, rows.length === 0)}
+      {title(name, rows.length === 0, note)}
       {rows}
     </Box>
   )
@@ -175,7 +190,7 @@ export function drawPane($: EngineInterface, e: RenderInput<'Pane'>, d: PaneData
   return (
     <Box flexDirection="column" gap={1}>
       {d.view.status === 'error' && <Text color="error">{d.view.message}</Text>}
-      {group('LIMITS', data ? limitRows(data) : [])}
+      {group('LIMITS', data ? limitRows(data) : [], limitsNote)}
       {group('CONTEXT', data ? contextRows(data) : [])}
       {group('COST', data ? costRows(data) : [])}
       {group('SESSION', sessionRows)}

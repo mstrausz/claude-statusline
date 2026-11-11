@@ -74,8 +74,13 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /** Epoch seconds as local time: "Mon 16 Nov 09:59". */
 export function when(epochS: number): string {
   const d = new Date(epochS * 1000)
-  const hm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${hm}`
+  return `${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]} ${hm(epochS)}`
+}
+
+/** Epoch seconds as local time: "09:59". */
+export function hm(epochS: number): string {
+  const d = new Date(epochS * 1000)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 /** "2026-11" -> "Nov 2026". */

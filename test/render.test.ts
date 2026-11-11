@@ -78,6 +78,8 @@ describe('with files', () => {
     expect(v.ssh).toBe(false)
     expect(x).toMatchObject({ ctxInput: 70_000, ctxCacheRead: 4_000, sessionCost: 1.84, turnStart: NOW - 83, monthKey: '2026-11' })
     expect(x.previous).toEqual({ key: '2026-10', cost: 212.4, tokens: 540_200_000 })
+    const fetched = Math.floor(statSync(join(cfg.dir, 'cache', 'statusline-usage.json')).mtimeMs / 1000)
+    expect(viewFile(v, x, DEFAULTS).limitsFetchedAt).toBe(fetched)
   })
 
   test('collect: no folder link in an SSH session, no branch link off GitHub, no skill when the file is empty', () => {

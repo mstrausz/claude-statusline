@@ -40,6 +40,8 @@ export type ViewFile = {
   /** The settings in effect: environment variable, else config file, else default. */
   settings: { style: Style; glyphs: Glyphs; motion: boolean; links: boolean; width: number }
   usageUrl: string
+  /** Epoch seconds of the last good fetch of the limits; absent before the first one. */
+  limitsFetchedAt?: number
 }
 
 /**

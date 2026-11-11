@@ -29,6 +29,7 @@ export type Extra = {
   previous?: { key: string; cost: number; tokens: number }
   sessionCost?: number
   turnStart?: number
+  limitsFetchedAt?: number // epoch s of the usage cache: the endpoint lets few requests through
 }
 
 /** A reset time as epoch seconds, from epoch seconds, epoch milliseconds or an ISO date. */
@@ -90,6 +91,7 @@ function runningTurn(state: string, now: number) {
 export function collect(input: any, now = nowSeconds(), date = new Date(now * 1000), env = process.env) {
   const p = paths()
   const usage = readJsonIfExists(p.usage) ?? {}
+  const usageStat = statSync(p.usage, { throwIfNoEntry: false })
   const ccusage = readJsonIfExists(p.ccusage)
 
   const cw = input.context_window ?? {}
@@ -149,6 +151,7 @@ export function collect(input: any, now = nowSeconds(), date = new Date(now * 10
     previous: prev && { key: previousKey, cost: prev.totalCost ?? 0, tokens: prev.totalTokens ?? 0 },
     sessionCost: num(input.cost?.total_cost_usd),
     turnStart: turn?.start,
+    limitsFetchedAt: usageStat && Math.floor(usageStat.mtimeMs / 1000),
   }
   return { view, extra }
 }
@@ -171,6 +174,7 @@ export function viewFile(v: View, x: Extra, s: Settings) {
   return {
     version: 1,
     limits,
+    limitsFetchedAt: x.limitsFetchedAt,
     context: v.ctxPct === undefined ? undefined : {
       pct: v.ctxPct, used: v.ctxCur, size: v.ctxSize,
       input: x.ctxInput, cacheRead: x.ctxCacheRead, cacheCreation: x.ctxCacheCreation,

@@ -84,5 +84,14 @@ export function parseView(text: string): ViewFile {
     width: num(g.width, 'settings.width'),
   }
 
-  return { version: 1, limits, context, cost, session, settings, usageUrl: str(v.usageUrl, 'usageUrl') }
+  return {
+    version: 1,
+    limits,
+    context,
+    cost,
+    session,
+    settings,
+    usageUrl: str(v.usageUrl, 'usageUrl'),
+    limitsFetchedAt: opt(v.limitsFetchedAt, 'limitsFetchedAt', num),
+  }
 }

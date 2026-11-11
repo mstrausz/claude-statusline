@@ -516,6 +516,35 @@ for (const surface of ['terminal', 'desktop'] as const) {
   })
 }
 
+test('the LIMITS title says when the limits were fetched, and how old when over 10 minutes', async ($, on) => {
+  const hhmm = (epochS: number) => new Date(epochS * 1000).toTimeString().slice(0, 5)
+  const { files, clock } = engine(on, { [`${BASE}.view.json`]: JSON.stringify({ ...SAMPLE, limitsFetchedAt: NOW_S - 120 }) })
+  await start($)
+  await statusbar($)
+  expect(await paneRows($)).toContain(`LIMITS · from ${hhmm(NOW_S - 120)}`)
+
+  // Exactly 10 minutes is not yet old.
+  files[`${BASE}.view.json`] = JSON.stringify({ ...SAMPLE, limitsFetchedAt: NOW_S + 3 - 600 })
+  await clock.advance(3000)
+  expect(await paneRows($)).toContain(`LIMITS · from ${hhmm(NOW_S + 3 - 600)}`)
+
+  const fetched = NOW_S + 6 - 18 * 60 - 30
+  files[`${BASE}.view.json`] = JSON.stringify({ ...SAMPLE, limitsFetchedAt: fetched })
+  await clock.advance(3000)
+  expect(await paneRows($)).toContain(`LIMITS · from ${hhmm(fetched)}, 18 min old`)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const note = await ui.find({ type: 'Text', text: /^ · from .*min old$/ })
+  expect(note?.props.color).toBe('warning')
+  await ui.unmount()
+})
+
+test('a limitsFetchedAt that is not a number is shown, not hidden', async ($, on) => {
+  engine(on, { [`${BASE}.view.json`]: JSON.stringify({ ...SAMPLE, limitsFetchedAt: '20:00' }) })
+  await start($)
+  await statusbar($)
+  expect(await paneRows($)).toContain(`${BASE}.view.json: limitsFetchedAt is not a number`)
+})
+
 test('the gauge fill takes the theme color of its level; a stale limit is muted', async ($, on) => {
   const view: ViewFile = {
     ...SAMPLE,

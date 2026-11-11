@@ -2,6 +2,7 @@
 // One run at a time per source (a lock); a result is published only when it is complete.
 
 import { spawnSync } from 'node:child_process'
+import { statSync } from 'node:fs'
 import { join } from 'node:path'
 import { bunArgv, logError, oauthToken, paths, withLock, writeAtomic } from './env.ts'
 
@@ -18,6 +19,14 @@ export async function refreshUsage() {
       headers: { Authorization: `Bearer ${token}`, 'anthropic-beta': 'oauth-2025-04-20' },
       signal: AbortSignal.timeout(USAGE_SECONDS * 1000),
     })
+    if (res.status === 429) {
+      // The endpoint lets about one request in five through, with "retry-after: 0": an
+      // expected answer, so one line without a stack, which says how old the kept data is.
+      const kept = statSync(p.usage, { throwIfNoEntry: false })
+      logError('refresh-usage', `rate limited (429, retry-after ${res.headers.get('retry-after') ?? 'none'}); ` +
+        `the limits stay from ${kept ? new Date(kept.mtimeMs).toISOString() : 'no earlier fetch'}`)
+      return
+    }
     const body: any = await res.json()
     // Accept any response with weekly data (five_hour can be null).
     if ((body?.seven_day ?? body?.limits) == null)
