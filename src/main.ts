@@ -3,7 +3,7 @@
 
 import { writeSync } from 'node:fs'
 import { version } from '../package.json' with { type: 'json' }
-import { logError } from './env.ts'
+import { logError, readStdin } from './env.ts'
 import { install, InstallError, uninstall } from './install.ts'
 import { refreshCcusage, refreshUsage, runJob } from './refresh.ts'
 import { render, startDueRefreshes } from './render.ts'
@@ -32,7 +32,7 @@ async function main(args: string[]): Promise<number> {
     // asynchronous write to the pipe can be lost when the process ends.
     let text: string
     try {
-      text = render(await Bun.stdin.text())
+      text = render(readStdin())
     } catch (e) {
       logError('render', e)
       text = `\x1b[0;31mclaude-statusline: ${(e as Error).message}\x1b[0m`
@@ -44,7 +44,7 @@ async function main(args: string[]): Promise<number> {
   if (cmd in HOOKS) {
     // A hook prints nothing on stdout. An error goes to stderr with exit 1, which Claude
     // Code reports as a hook error without blocking the turn.
-    turnHook(HOOKS[cmd]!, JSON.parse(await Bun.stdin.text()))
+    turnHook(HOOKS[cmd]!, JSON.parse(readStdin()))
     return 0
   }
   switch (cmd) {

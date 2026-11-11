@@ -134,6 +134,19 @@ export function oauthToken(): string | undefined {
   return text === undefined ? undefined : fromJson(text)
 }
 
+/**
+ * All of stdin, read synchronously. An asynchronous read (Bun.stdin.text()) of a Windows
+ * pipe does not keep the process alive: it ended with exit code 0 and printed nothing.
+ */
+export function readStdin(): string {
+  try {
+    return readFileSync(0, 'utf8')
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EOF') return '' // Windows: an empty pipe
+    throw e
+  }
+}
+
 /** The file's text, or undefined when it does not exist. Other read errors throw. */
 export function readIfExists(path: string): string | undefined {
   try {
