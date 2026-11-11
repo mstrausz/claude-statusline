@@ -50,6 +50,7 @@ The mod adds one command:
 ```
 /statusbar                              open the detail pane; again to close it
 /statusbar style hud|quiet              the style
+/statusbar theme <name>                 the color scheme of the hud style
 /statusbar glyphs unicode|ascii|nerd    the glyph set
 /statusbar motion on|off                the spinner of the hud style
 /statusbar links on|off                 the links in the status line
@@ -65,6 +66,7 @@ month's cost, the session's cost, the full folder, branch and skill names, and t
 | Setting | Values (default first) | Variable | Effect |
 | --- | --- | --- | --- |
 | `style` | `hud`, `quiet` | `CLAUDE_STATUSLINE_STYLE` | the look |
+| `theme` | `default`, `terminal`, `catppuccin`, `catppuccin-latte`, `nord`, `dracula`, `gruvbox`, `tokyo-night` | `CLAUDE_STATUSLINE_THEME` | the color scheme of the hud style (see below) |
 | `glyphs` | `unicode`, `ascii`, `nerd` | `CLAUDE_STATUSLINE_GLYPHS` | `nerd` adds Powerline shapes and icons to hud; it needs a [Nerd Font](https://www.nerdfonts.com) |
 | `motion` | `on`, `off` | `CLAUDE_STATUSLINE_MOTION` | a small spinner before the turn timer, one step per second (hud) |
 | `links` | `on`, `off` | `CLAUDE_STATUSLINE_LINKS` | the links in the status line |
@@ -74,6 +76,29 @@ month's cost, the session's cost, the full folder, branch and skill names, and t
 `claude-statusline.json` in Claude Code's config folder; the status line reads it on its
 next render. A variable wins over the file. A value that is not valid shows as an error
 in the status line instead of a silent default.
+
+### Color schemes
+
+The `theme` setting changes the colors of the hud style; its shapes and its content stay
+the same. `claude-statusline themes` draws every scheme in your terminal, so you can
+compare them before you switch:
+
+| Scheme | Colors |
+| --- | --- |
+| `default` | dark segments, violet model, teal-to-red gauges |
+| `terminal` | your terminal's own 16 colors, so it follows your terminal's color scheme |
+| `catppuccin` | Catppuccin Mocha |
+| `catppuccin-latte` | Catppuccin Latte, light segments for a light terminal |
+| `nord` | Nord |
+| `dracula` | Dracula |
+| `gruvbox` | Gruvbox dark |
+| `tokyo-night` | Tokyo Night |
+
+The named schemes use the colors of the published palettes. Where a palette color is too
+light or too dark for text on the segment fill, the scheme uses a nearby shade; a test
+checks the contrast of every scheme. The quiet style always uses the terminal's 16
+colors, so it follows the terminal's color scheme without this setting. In a terminal
+with 16 colors only, every scheme looks like `terminal`.
 
 Colors follow the terminal: truecolor where `COLORTERM` says so (and on Windows), 256
 colors in macOS Terminal.app, else 16. `NO_COLOR` turns colors and links off; `FORCE_COLOR`

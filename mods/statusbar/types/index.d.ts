@@ -6,6 +6,8 @@ export type Scope = string
 export type Level = 'ok' | 'warn' | 'crit'
 export type Style = 'hud' | 'quiet'
 export type Glyphs = 'unicode' | 'ascii' | 'nerd'
+/** The color scheme of the hud style: src/style/themes.ts in the repository. */
+export type Theme = 'default' | 'terminal' | 'catppuccin' | 'catppuccin-latte' | 'nord' | 'dracula' | 'gruvbox' | 'tokyo-night'
 
 /** One month of ccusage figures. `key` is the month as `2026-11`. */
 export type ViewMonth = { key: string; cost: number; tokens: number }
@@ -38,7 +40,8 @@ export type ViewFile = {
     turn?: { start: number /* epoch seconds */; label?: string }
   }
   /** The settings in effect: environment variable, else config file, else default. */
-  settings: { style: Style; glyphs: Glyphs; motion: boolean; links: boolean; width: number }
+  /** `theme` is absent from a binary older than the setting. */
+  settings: { style: Style; theme?: Theme; glyphs: Glyphs; motion: boolean; links: boolean; width: number }
   usageUrl: string
   /** Epoch seconds of the last good fetch of the limits; absent before the first one. */
   limitsFetchedAt?: number
@@ -48,7 +51,7 @@ export type ViewFile = {
  * `claude-statusline.json` in the config folder, as /statusbar writes it. Each field is
  * optional; an absent one leaves the environment variable or the default in force.
  */
-export type ConfigFile = { style?: Style; glyphs?: Glyphs; motion?: boolean; links?: boolean; width?: number }
+export type ConfigFile = { style?: Style; theme?: Theme; glyphs?: Glyphs; motion?: boolean; links?: boolean; width?: number }
 
 export type SettingName = keyof ConfigFile
 

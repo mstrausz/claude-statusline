@@ -3,6 +3,7 @@ import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
 import type { ViewFile } from '../types'
+import { cells } from './format'
 
 const PLUGIN = 'statusbar'
 const HINT = {
@@ -50,7 +51,7 @@ const SAMPLE: ViewFile = {
     skill: 'plugin-authoring',
     turn: { start: NOW_S - 83, label: 'Fix tariff chapter 84 import' },
   },
-  settings: { style: 'hud', glyphs: 'unicode', motion: true, links: true, width: 100 },
+  settings: { style: 'hud', theme: 'default', glyphs: 'unicode', motion: true, links: true, width: 100 },
   usageUrl: 'https://claude.ai/settings/usage',
 }
 
@@ -331,7 +332,7 @@ test("/statusbar is the mod's own command; Claude Code's /statusline stays its o
     {
       name: 'statusbar',
       description: 'Show the status line details, or change a status line setting',
-      argumentHint: '[style hud|quiet | glyphs unicode|ascii|nerd | motion on|off | links on|off | width <cells>|auto]',
+      argumentHint: '[style hud|quiet | theme <name> | glyphs unicode|ascii|nerd | motion on|off | links on|off | width <cells>|auto]',
       immediate: true, // runs mid-turn: a setting or the pane does not wait for the turn
     },
   ])
@@ -374,8 +375,18 @@ test('/statusbar width auto removes the field', async ($, on) => {
   expect(toasts).toEqual(['Status line width: auto'])
 })
 
+test('/statusbar theme sets the color scheme; the variable wins over it', async ($, on) => {
+  const { files, toasts } = engine(on, { [SETTINGS]: '{ "style": "hud" }' }, { HOME: '/home/me', CLAUDE_STATUSLINE_THEME: 'nord' })
+  await start($)
+  await statusbar($, 'theme catppuccin-latte')
+  expect(JSON.parse(files[SETTINGS]!)).toEqual({ style: 'hud', theme: 'catppuccin-latte' })
+  expect(toasts).toEqual(['Status line theme: catppuccin-latte. Theme is set by CLAUDE_STATUSLINE_THEME.'])
+})
+
 const INVALID: [string, string][] = [
   ['style loud', 'Usage: /statusbar style hud|quiet'],
+  ['theme solarized', 'Usage: /statusbar theme default|terminal|catppuccin|catppuccin-latte|nord|dracula|gruvbox|tokyo-night'],
+  ['theme', 'Usage: /statusbar theme default|terminal|catppuccin|catppuccin-latte|nord|dracula|gruvbox|tokyo-night'],
   ['style', 'Usage: /statusbar style hud|quiet'],
   ['style hud quiet', 'Usage: /statusbar style hud|quiet'],
   ['glyphs emoji', 'Usage: /statusbar glyphs unicode|ascii|nerd'],
@@ -386,7 +397,7 @@ const INVALID: [string, string][] = [
   ['width 1e2', 'Usage: /statusbar width <cells>|auto'],
   [
     'toasts on',
-    'Usage: /statusbar [style hud|quiet | glyphs unicode|ascii|nerd | motion on|off | links on|off | width <cells>|auto]',
+    'Usage: /statusbar [style hud|quiet | theme default|terminal|catppuccin|catppuccin-latte|nord|dracula|gruvbox|tokyo-night | glyphs unicode|ascii|nerd | motion on|off | links on|off | width <cells>|auto]',
   ],
 ]
 
@@ -596,6 +607,39 @@ test('a view file that is not valid is shown, not hidden', async ($, on) => {
   expect(drawn).toContain('LIMITS …')
 })
 
+test('the theme in the view file: a scheme name, or absent from a binary older than the setting', async ($, on) => {
+  const old = { ...SAMPLE, settings: { ...SAMPLE.settings, theme: undefined } }
+  engine(on, { [`${BASE}.view.json`]: JSON.stringify(old) })
+  await start($)
+  await statusbar($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Select', key: 'theme' }))?.props.value).toBeUndefined()
+  expect((await ui.find({ type: 'Select', key: 'style' }))?.props.value).toBe('hud')
+  await ui.unmount()
+})
+
+test('a theme in the view file that is not a scheme name is shown', async ($, on) => {
+  engine(on, { [`${BASE}.view.json`]: JSON.stringify({ ...SAMPLE, settings: { ...SAMPLE.settings, theme: 'solarized' } }) })
+  await start($)
+  await statusbar($)
+  expect((await paneRows($)).join('\n')).toContain(`${BASE}.view.json: settings.theme is not default or terminal or`)
+})
+
+test('the theme Select says that the scheme colors the hud style, and a pick sets it', async ($, on) => {
+  const { files, toasts } = engine(on, { [`${BASE}.view.json`]: JSON.stringify(SAMPLE) })
+  await start($)
+  await statusbar($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const select = await ui.find({ type: 'Select', key: 'theme' })
+  expect(select?.props.label).toBe('Theme (hud)')
+  expect((select?.props.options as { value: string }[]).map(o => o.value)).toHaveLength(8)
+  await ui.select({ key: 'theme', value: 'dracula' })
+  expect(JSON.parse(files[SETTINGS]!)).toEqual({ theme: 'dracula' })
+  expect(toasts).toEqual(['Status line theme: dracula'])
+  await ui.unmount()
+  for (const row of await paneRows($)) expect(cells(row)).toBeLessThanOrEqual(48)
+})
+
 test('a view file of another version is shown as such', async ($, on) => {
   engine(on, { [`${BASE}.view.json`]: JSON.stringify({ ...SAMPLE, version: 2 }) })
   await start($)
@@ -622,6 +666,7 @@ test('the Selects show the settings, and a pick does what the command does', asy
     const values = (await ui.findAll({ type: 'Select' })).map(s => [s.key, s.props.value])
     expect(values).toEqual([
       ['style', 'hud'],
+      ['theme', 'default'],
       ['glyphs', 'unicode'],
       ['motion', 'off'],
       ['links', 'on'],

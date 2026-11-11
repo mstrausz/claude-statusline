@@ -6,12 +6,13 @@
 
 import { join } from 'node:path'
 import { configDir, readIfExists, writeAtomic } from './env.ts'
+import { THEME_NAMES, type ThemeName } from './style/themes.ts'
 
 export type Style = 'hud' | 'quiet'
 export type Glyphs = 'unicode' | 'ascii' | 'nerd'
-export type Settings = { style: Style; glyphs: Glyphs; motion: boolean; links: boolean; width: number }
+export type Settings = { style: Style; theme: ThemeName; glyphs: Glyphs; motion: boolean; links: boolean; width: number }
 
-export const DEFAULTS: Settings = { style: 'hud', glyphs: 'unicode', motion: true, links: true, width: 100 }
+export const DEFAULTS: Settings = { style: 'hud', theme: 'default', glyphs: 'unicode', motion: true, links: true, width: 100 }
 export const WIDTH_MIN = 40
 export const WIDTH_MAX = 400
 
@@ -41,6 +42,7 @@ const isWidth = (v: unknown): v is number =>
 
 export const SPECS: { [K in keyof Settings]: Spec<K> } = {
   style: { env: 'CLAUDE_STATUSLINE_STYLE', ...oneOf<Style>('hud', 'quiet') },
+  theme: { env: 'CLAUDE_STATUSLINE_THEME', ...oneOf<ThemeName>(...THEME_NAMES) },
   glyphs: { env: 'CLAUDE_STATUSLINE_GLYPHS', ...oneOf<Glyphs>('unicode', 'ascii', 'nerd') },
   motion: { env: 'CLAUDE_STATUSLINE_MOTION', ...onOff },
   links: { env: 'CLAUDE_STATUSLINE_LINKS', ...onOff },

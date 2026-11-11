@@ -7,7 +7,10 @@ import { logError, readStdin } from './env.ts'
 import { install, InstallError, uninstall } from './install.ts'
 import { refreshCcusage, refreshUsage, runJob } from './refresh.ts'
 import { render, startDueRefreshes } from './render.ts'
-import { SPECS, saveSetting, SettingsError } from './settings.ts'
+import { DEFAULTS, loadSettings, SPECS, saveSetting, SettingsError } from './settings.ts'
+import { detectTier } from './style/hud.ts'
+import { themesPreview } from './style/preview.ts'
+import { THEME_NAMES } from './style/themes.ts'
 import { summarize, turnHook, type HookKind } from './turns.ts'
 
 const HOOKS: Record<string, HookKind> = {
@@ -22,6 +25,9 @@ const USAGE = `claude-statusline ${version}
   claude-statusline install     install into Claude Code (CLAUDE_CONFIG_DIR or ~/.claude)
   claude-statusline uninstall   remove it again
   claude-statusline style hud|quiet
+  claude-statusline theme <name>   the color scheme of the hud style:
+                                   ${THEME_NAMES.join(', ')}
+  claude-statusline themes         show every scheme in this terminal
   claude-statusline glyphs unicode|ascii|nerd
   claude-statusline motion on|off
   claude-statusline links on|off
@@ -76,6 +82,17 @@ async function main(args: string[]): Promise<number> {
     case '--summarize':
       summarize(rest[0] ?? '', rest[1] ?? '', rest[2] ?? '')
       return 0
+    case 'themes': {
+      let settings = DEFAULTS
+      try {
+        settings = loadSettings()
+      } catch (e) {
+        if (!(e instanceof SettingsError)) throw e
+        console.error(`${e.message}; the preview uses the defaults`)
+      }
+      console.log(themesPreview(settings, detectTier(process.env, process.platform)))
+      return 0
+    }
     case 'install':
     case 'uninstall':
       try {

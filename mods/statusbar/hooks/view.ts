@@ -1,5 +1,6 @@
 import type { ViewFile } from '../types'
 import { parseObject } from './files'
+import { THEMES } from './settings'
 
 // The view file is the binary's: check it against the contract in types/index.d.ts, and say
 // which field is wrong, so that a binary and a mod of different versions show the fault
@@ -78,6 +79,7 @@ export function parseView(text: string): ViewFile {
   const g = obj(v.settings, 'settings')
   const settings = {
     style: oneOf(g.style, 'settings.style', ['hud', 'quiet'] as const),
+    theme: opt(g.theme, 'settings.theme', (v, path) => oneOf(v, path, THEMES)),
     glyphs: oneOf(g.glyphs, 'settings.glyphs', ['unicode', 'ascii', 'nerd'] as const),
     motion: bool(g.motion, 'settings.motion'),
     links: bool(g.links, 'settings.links'),
