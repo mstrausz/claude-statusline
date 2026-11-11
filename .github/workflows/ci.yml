@@ -69,8 +69,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    env:
-      CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
     steps:
       - uses: actions/checkout@v4
       - name: Is bun there before?
@@ -78,11 +76,17 @@ jobs:
         run: command -v bun || echo "no bun on this runner"
       - name: install.sh
         if: runner.os != 'Windows'
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
         run: ./install.sh --yes --skip-claude
       - name: install.ps1 (Windows PowerShell 5.1)
         if: runner.os == 'Windows'
         shell: powershell
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
         run: .\install.ps1 -Yes -SkipClaude
       - name: Check the installation
         shell: bash
+        env:
+          CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude
         run: test/ci-check.sh
