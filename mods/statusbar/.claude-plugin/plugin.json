@@ -1,0 +1,6 @@
+{
+  "name": "statusbar",
+  "version": "0.1.0",
+  "description": "The mod of the claude-statusline status line: the session scope on the mode line, the skill in use, /statusbar and its detail pane",
+  "types": "./types/index.d.ts"
+}
