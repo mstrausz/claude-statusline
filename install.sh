@@ -57,9 +57,9 @@ find_bun() {
   fi
 }
 
-build() { # <bun>
+build() { # <bun>: the package scripts call bun by name, so its folder goes on PATH
   say "Building claude-statusline with $1"
-  (cd "$REPO" && "$1" install --frozen-lockfile && "$1" run build)
+  (cd "$REPO" && PATH="$(dirname "$1"):$PATH" && "$1" install --frozen-lockfile && "$1" run build)
 }
 
 download_release() {

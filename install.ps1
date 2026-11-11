@@ -52,8 +52,20 @@ function Invoke-Checked([string]$exe, [string[]]$arguments) {
   if ($LASTEXITCODE -ne 0) { Fail "$exe $($arguments -join ' ') exited with $LASTEXITCODE" }
 }
 
+# Runs a command only to ask it something: returns its stdout, or $null when it fails.
+# Windows PowerShell 5.1 turns a native command's redirected stderr into errors, which
+# stop the script under 'Stop', so the preference is relaxed for this call alone.
+function Get-Answer([string]$exe, [string[]]$arguments) {
+  $saved = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  try { $out = & $exe @arguments 2> $null } finally { $ErrorActionPreference = $saved }
+  if ($LASTEXITCODE -ne 0) { return $null }
+  return "$out"
+}
+
 function Build([string]$bun) {
   Say "Building claude-statusline with $bun"
+  $env:Path = "$(Split-Path $bun);$env:Path" # the package scripts call bun by name
   Push-Location $Repo
   try {
     Invoke-Checked $bun @('install', '--frozen-lockfile')
@@ -63,13 +75,11 @@ function Build([string]$bun) {
 
 function Get-Release {
   if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { return $false }
-  gh auth status *> $null
-  if ($LASTEXITCODE -ne 0) { return $false }
+  if ($null -eq (Get-Answer gh @('auth', 'status'))) { return $false }
   Push-Location $Repo
-  try { $repo = gh repo view --json nameWithOwner -q .nameWithOwner 2> $null } finally { Pop-Location }
-  if ($LASTEXITCODE -ne 0 -or -not $repo) { return $false }
-  gh release view --repo $repo *> $null
-  if ($LASTEXITCODE -ne 0) { return $false }
+  try { $repo = Get-Answer gh @('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner') } finally { Pop-Location }
+  if (-not $repo) { return $false }
+  if ($null -eq (Get-Answer gh @('release', 'view', '--repo', $repo))) { return $false }
   Say "Downloading the latest claude-statusline release for windows-$Arch from $repo"
   New-Item -ItemType Directory -Force (Split-Path $Bin) | Out-Null
   Invoke-Checked gh @('release', 'download', '--repo', $repo, '--pattern', "claude-statusline-windows-$Arch.exe", '--output', $Bin, '--clobber')

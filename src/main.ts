@@ -1,11 +1,12 @@
 // claude-statusline: one binary that is the status line command, the turn hook handler, its
 // own background jobs, and its installer.
 
+import { writeSync } from 'node:fs'
 import { version } from '../package.json' with { type: 'json' }
 import { logError } from './env.ts'
 import { install, InstallError, uninstall } from './install.ts'
 import { refreshCcusage, refreshUsage, runJob } from './refresh.ts'
-import { render } from './render.ts'
+import { render, startDueRefreshes } from './render.ts'
 import { summarize, turnHook, type HookKind } from './turns.ts'
 
 const HOOKS: Record<string, HookKind> = {
@@ -27,12 +28,17 @@ async function main(args: string[]): Promise<number> {
   const [cmd, ...rest] = args
   if (cmd === undefined) {
     // The status line. An error shows in the line itself, in red, instead of an empty line.
+    // The write is synchronous and comes before the background jobs start: on Windows an
+    // asynchronous write to the pipe can be lost when the process ends.
+    let text: string
     try {
-      process.stdout.write(render(await Bun.stdin.text()))
+      text = render(await Bun.stdin.text())
     } catch (e) {
       logError('render', e)
-      process.stdout.write(`\x1b[0;31mclaude-statusline: ${(e as Error).message}\x1b[0m`)
+      text = `\x1b[0;31mclaude-statusline: ${(e as Error).message}\x1b[0m`
     }
+    writeSync(1, text)
+    startDueRefreshes()
     return 0
   }
   if (cmd in HOOKS) {

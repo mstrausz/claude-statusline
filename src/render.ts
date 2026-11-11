@@ -213,14 +213,19 @@ function due(stamp: string, ttl: number, now: number): boolean {
   return true
 }
 
-/** One render: starts due refreshes, publishes the session title, returns the lines. */
+/** Starts the refreshes whose last attempt is older than their TTL, detached. */
+export function startDueRefreshes(now = nowSeconds()) {
+  const p = paths()
+  mkdirSync(p.cache, { recursive: true })
+  if (due(join(p.cache, '.usage.stamp'), USAGE_TTL, now)) spawnSelfDetached(['--refresh-usage'])
+  if (due(join(p.cache, '.ccusage.stamp'), CCUSAGE_TTL, now)) spawnSelfDetached(['--refresh-ccusage'])
+}
+
+/** One render: publishes the session title and returns the lines. */
 export function render(stdin: string): string {
   const p = paths()
   const now = nowSeconds()
   mkdirSync(p.turns, { recursive: true })
-  if (due(join(p.cache, '.usage.stamp'), USAGE_TTL, now)) spawnSelfDetached(['--refresh-usage'])
-  if (due(join(p.cache, '.ccusage.stamp'), CCUSAGE_TTL, now)) spawnSelfDetached(['--refresh-ccusage'])
-
   writeFileSync(p.input, stdin) // the last payload, to debug
   const input = JSON.parse(stdin)
 
